@@ -1,0 +1,19 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: static-website-hpa
+  namespace: demo-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: static-website # חייב להתאים לשם ה-Deployment שלך
+  minReplicas: 2 # מינימום פודים
+  maxReplicas: 5 # מקסימום פודים
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization # יעד לפי אחוז ניצול CPU מה-requests
+          averageUtilization: 50 # יעד 50%
