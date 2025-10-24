@@ -13,45 +13,68 @@ spec:
       labels:
         app: static-website
     spec:
+      # --- מעתיקים את אתר ה-build ל-PVC אם הוא ריק ---
+      initContainers:
+        - name: init-copy-site
+          image: yogevfarjoun/winning-award-website:latest
+          command:
+            - sh
+            - -c
+            - |
+              if [ -z "$(ls -A /mnt/html)" ]; then
+                cp -r /usr/share/nginx/html/* /mnt/html/ || true
+                echo "Init: copied site content to PVC"
+              else
+                echo "Init: PVC already has content"
+              fi
+          volumeMounts:
+            - name: html-storage
+              mountPath: /mnt/html
+
       containers:
         - name: nginx
           image: yogevfarjoun/winning-award-website:latest
           ports:
             - containerPort: 80
 
-          # ✅ בקשות ומגבלות משאבים
           resources:
             requests:
-              cpu: "50m" # מבקש מינימום 0.05 vCPU
-              memory: "64Mi" # מבקש מינימום 64MB
+              cpu: "50m"
+              memory: "64Mi"
             limits:
-              cpu: "200m" # מקסימום 0.2 vCPU
-              memory: "256Mi" # מקסימום 256MB
+              cpu: "200m"
+              memory: "256Mi"
 
-          # ✅ בדיקת "האתר מוכן" (תוריד מה־LB)
           readinessProbe:
             httpGet:
-              path: /
+              path: /index.html
               port: 80
             initialDelaySeconds: 3
             periodSeconds: 5
             timeoutSeconds: 1
             failureThreshold: 3
 
-          # ✅ בדיקת "חיוניות" (שירות לא תקוע)
           livenessProbe:
             httpGet:
-              path: /
+              path: /index.html
               port: 80
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 1
             failureThreshold: 3
 
-          # ✅ בדיקת "אתחול" (נותן מרווח ארוך לעלייה ראשונית)
           startupProbe:
             httpGet:
-              path: /
+              path: /index.html
               port: 80
             periodSeconds: 1
             failureThreshold: 30
+
+          volumeMounts:
+            - name: html-storage
+              mountPath: /usr/share/nginx/html
+
+      volumes:
+        - name: html-storage
+          persistentVolumeClaim:
+            claimName: nginx-pvc
