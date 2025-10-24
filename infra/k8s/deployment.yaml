@@ -1,34 +1,57 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: award-website
+  name: static-website
   namespace: demo-app
-  labels:
-    app: award-website
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: award-website
+      app: static-website
   template:
     metadata:
       labels:
-        app: award-website
+        app: static-website
     spec:
       containers:
-        - name: web
-          image: docker.io/yogevfarjoun/winning-award-website:latest
-          imagePullPolicy: IfNotPresent
+        - name: nginx
+          image: yogevfarjoun/winning-award-website:latest
           ports:
             - containerPort: 80
+
+          # ✅ בקשות ומגבלות משאבים
+          resources:
+            requests:
+              cpu: "50m" # מבקש מינימום 0.05 vCPU
+              memory: "64Mi" # מבקש מינימום 64MB
+            limits:
+              cpu: "200m" # מקסימום 0.2 vCPU
+              memory: "256Mi" # מקסימום 256MB
+
+          # ✅ בדיקת "האתר מוכן" (תוריד מה־LB)
           readinessProbe:
-            httpGet: { path: "/", port: 80 }
+            httpGet:
+              path: /
+              port: 80
             initialDelaySeconds: 3
             periodSeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 3
+
+          # ✅ בדיקת "חיוניות" (שירות לא תקוע)
           livenessProbe:
-            httpGet: { path: "/", port: 80 }
+            httpGet:
+              path: /
+              port: 80
             initialDelaySeconds: 10
             periodSeconds: 10
-          resources:
-            requests: { cpu: "50m", memory: "64Mi" }
-            limits: { cpu: "200m", memory: "256Mi" }
+            timeoutSeconds: 1
+            failureThreshold: 3
+
+          # ✅ בדיקת "אתחול" (נותן מרווח ארוך לעלייה ראשונית)
+          startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            periodSeconds: 1
+            failureThreshold: 30
