@@ -1,9 +1,21 @@
 replicaCount: 2
 
 image:
-  repository: yogevfarjoun/winning-award-website
-  tag: "latest"
+  repository: docker.io/yogevfarjoun/winning-award-website
+  tag: latest
   pullPolicy: IfNotPresent
+
+imagePullSecretName: dockerhub-creds # השאר ריק אם אין צורך, או מחק את המפתח
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  host: award.local
+  className: nginx
+  annotations: {}
 
 resources:
   requests:
@@ -13,6 +25,14 @@ resources:
     cpu: "200m"
     memory: "256Mi"
 
-service:
-  type: ClusterIP
-  port: 80
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 50
+
+pvc:
+  enabled: true
+  name: nginx-pvc
+  accessModes: ["ReadWriteOnce"]
+  storage: 1Gi

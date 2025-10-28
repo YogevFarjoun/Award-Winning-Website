@@ -1,18 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-deployment
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "my-react-app.fullname" . }}-deployment
+  labels:
+    app: {{ include "my-react-app.fullname" . }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}
+      app: {{ include "my-react-app.fullname" . }}
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}
+        app: {{ include "my-react-app.fullname" . }}
     spec:
+      {{- if .Values.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecretName }}
+      {{- end }}
       containers:
         - name: nginx
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -27,20 +32,25 @@ spec:
               cpu: {{ .Values.resources.limits.cpu }}
               memory: {{ .Values.resources.limits.memory }}
           readinessProbe:
-            httpGet:
-              path: /
-              port: 80
+            httpGet: { path: /, port: 80 }
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /
-              port: 80
+            httpGet: { path: /, port: 80 }
             initialDelaySeconds: 10
             periodSeconds: 10
           startupProbe:
-            httpGet:
-              path: /
-              port: 80
+            httpGet: { path: /, port: 80 }
             periodSeconds: 1
             failureThreshold: 30
+          {{- if .Values.pvc.enabled }}
+          volumeMounts:
+            - name: site
+              mountPath: /usr/share/nginx/html
+          {{- end }}
+      {{- if .Values.pvc.enabled }}
+      volumes:
+        - name: site
+          persistentVolumeClaim:
+            claimName: {{ .Values.pvc.name }}
+      {{- end }}

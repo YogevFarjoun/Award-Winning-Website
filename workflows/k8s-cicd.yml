@@ -6,7 +6,9 @@ on:
 
 jobs:
   build:
+    name: Build & Push Docker Image
     runs-on: self-hosted
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,16 +27,26 @@ jobs:
       - name: Build Docker image
         run: docker build -t yogevfarjoun/winning-award-website:latest .
 
-      - name: Push Docker image to registry
+      - name: Push Docker image to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
           docker push yogevfarjoun/winning-award-website:latest
 
   deploy:
+    name: Deploy to Minikube via Helm
     runs-on: self-hosted
     needs: build
+
     steps:
-      - name: Update Deployment in Kubernetes
+      - name: Checkout Helm chart
+        uses: actions/checkout@v4
+
+      - name: Helm upgrade release
         run: |
-          kubectl set image deployment/static-website nginx=yogevfarjoun/winning-award-website:latest -n demo-app
-          kubectl rollout status deployment/static-website -n demo-app
+          helm upgrade --install my-react-app ./my-react-app-chart \
+            --namespace demo-app \
+            --set image.repository=yogevfarjoun/winning-award-website \
+            --set image.tag=latest
