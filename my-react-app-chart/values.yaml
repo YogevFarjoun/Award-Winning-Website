@@ -1,0 +1,18 @@
+replicaCount: 2
+
+image:
+  repository: yogevfarjoun/winning-award-website
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "256Mi"
+
+service:
+  type: ClusterIP
+  port: 80

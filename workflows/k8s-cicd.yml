@@ -1,0 +1,40 @@
+name: CI/CD with Kubernetes
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Build Docker image
+        run: docker build -t yogevfarjoun/winning-award-website:latest .
+
+      - name: Push Docker image to registry
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          docker push yogevfarjoun/winning-award-website:latest
+
+  deploy:
+    runs-on: self-hosted
+    needs: build
+    steps:
+      - name: Update Deployment in Kubernetes
+        run: |
+          kubectl set image deployment/static-website nginx=yogevfarjoun/winning-award-website:latest -n demo-app
+          kubectl rollout status deployment/static-website -n demo-app
