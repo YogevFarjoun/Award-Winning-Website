@@ -3,6 +3,14 @@ name: CI/CD with Kubernetes
 on:
   push:
     branches: ["main"]
+  workflow_dispatch: {} # הפעלה ידנית מה-Actions
+
+env:
+  IMAGE_REPO: yogevfarjoun/winning-award-website
+  IMAGE_TAG: latest
+  CHART_DIR: my-react-app-chart
+  RELEASE_NAME: my-react-app
+  K8S_NAMESPACE: demo-app
 
 jobs:
   build:
@@ -17,6 +25,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -24,16 +33,17 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Build Docker image
-        run: docker build -t yogevfarjoun/winning-award-website:latest .
-
-      - name: Push Docker image to Docker Hub
+      - name: Docker login (Hub)
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-          docker push yogevfarjoun/winning-award-website:latest
+        run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Build image
+        run: docker build -t $IMAGE_REPO:$IMAGE_TAG .
+
+      - name: Push image
+        run: docker push $IMAGE_REPO:$IMAGE_TAG
 
   deploy:
     name: Deploy to Minikube via Helm
@@ -41,12 +51,24 @@ jobs:
     needs: build
 
     steps:
-      - name: Checkout Helm chart
+      - name: Checkout (for chart files)
         uses: actions/checkout@v4
 
-      - name: Helm upgrade release
+      - name: Cluster info (debug)
         run: |
-          helm upgrade --install my-react-app ./my-react-app-chart \
-            --namespace demo-app \
-            --set image.repository=yogevfarjoun/winning-award-website \
-            --set image.tag=latest
+          kubectl config current-context
+          kubectl get nodes
+          kubectl get ns
+
+      - name: Helm upgrade/install
+        working-directory: ./${{ env.CHART_DIR }}
+        run: |
+          helm upgrade --install $RELEASE_NAME . \
+            --namespace $K8S_NAMESPACE \
+            --create-namespace \
+            --set image.repository=$IMAGE_REPO \
+            --set image.tag=$IMAGE_TAG
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deploy/${{ env.RELEASE_NAME }}-deployment -n $K8S_NAMESPACE
