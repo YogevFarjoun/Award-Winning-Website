@@ -3,7 +3,14 @@ name: CI/CD with Kubernetes
 on:
   push:
     branches: ["main"]
-  workflow_dispatch: {} # הפעלה ידנית מה-Actions
+  workflow_dispatch: {}
+
+concurrency:
+  group: k8s-cicd-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   IMAGE_REPO: yogevfarjoun/winning-award-website
@@ -11,6 +18,8 @@ env:
   CHART_DIR: my-react-app-chart
   RELEASE_NAME: my-react-app
   K8S_NAMESPACE: demo-app
+  # מבטל שמירת cache בשלב ה-Post job
+  ACTIONS_CACHE_SKIP_SAVE: "true"
 
 jobs:
   build:
@@ -20,18 +29,26 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
+          # שים לב: אין cache כאן
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build project
         run: npm run build
+
+      - name: Check Docker secrets exist
+        shell: bash
+        run: |
+          [[ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]] || { echo "Missing DOCKERHUB_USERNAME"; exit 1; }
+          [[ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]]    || { echo "Missing DOCKERHUB_TOKEN"; exit 1; }
 
       - name: Docker login (Hub)
         env:
@@ -40,10 +57,13 @@ jobs:
         run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
       - name: Build image
-        run: docker build -t $IMAGE_REPO:$IMAGE_TAG .
+        run: docker build -t "$IMAGE_REPO:$IMAGE_TAG" .
 
       - name: Push image
-        run: docker push $IMAGE_REPO:$IMAGE_TAG
+        run: docker push "$IMAGE_REPO:$IMAGE_TAG"
+
+      - name: Show pushed image digest
+        run: docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_REPO:$IMAGE_TAG" || true
 
   deploy:
     name: Deploy to Minikube via Helm
@@ -53,22 +73,33 @@ jobs:
     steps:
       - name: Checkout (for chart files)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Cluster info (debug)
         run: |
           kubectl config current-context
-          kubectl get nodes
+          kubectl get nodes -o wide
           kubectl get ns
 
-      - name: Helm upgrade/install
+      - name: Helm dependency/build (if needed)
+        working-directory: ./${{ env.CHART_DIR }}
+        run: helm dependency build || true
+
+      - name: Helm upgrade/install (atomic)
         working-directory: ./${{ env.CHART_DIR }}
         run: |
-          helm upgrade --install $RELEASE_NAME . \
-            --namespace $K8S_NAMESPACE \
+          helm upgrade --install "$RELEASE_NAME" . \
+            --namespace "$K8S_NAMESPACE" \
             --create-namespace \
-            --set image.repository=$IMAGE_REPO \
-            --set image.tag=$IMAGE_TAG
+            --set image.repository="$IMAGE_REPO" \
+            --set image.tag="$IMAGE_TAG" \
+            --atomic --wait --timeout 5m
 
       - name: Wait for rollout
+        run: kubectl rollout status deploy/${{ env.RELEASE_NAME }}-deployment -n "$K8S_NAMESPACE" --timeout=300s
+
+      - name: Show service/ingress
         run: |
-          kubectl rollout status deploy/${{ env.RELEASE_NAME }}-deployment -n $K8S_NAMESPACE
+          kubectl get svc -n "$K8S_NAMESPACE" -o wide || true
+          kubectl get ing -n "$K8S_NAMESPACE" -o wide || true

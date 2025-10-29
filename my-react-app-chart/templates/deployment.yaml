@@ -9,6 +9,14 @@ spec:
   selector:
     matchLabels:
       app: {{ include "my-react-app.fullname" . }}
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  progressDeadlineSeconds: 600
+
   template:
     metadata:
       labels:
@@ -18,12 +26,32 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.imagePullSecretName }}
       {{- end }}
+
+      {{- if .Values.pvc.enabled }}
+      initContainers:
+        - name: init-copy-site
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["sh","-c"]
+          args:
+            - |
+              if [ -z "$(ls -A /mnt/html 2>/dev/null)" ]; then
+                cp -r /usr/share/nginx/html/* /mnt/html/ || true
+                echo "Init: copied site content to PVC"
+              else
+                echo "Init: PVC already has content"
+              fi
+          volumeMounts:
+            - name: site
+              mountPath: /mnt/html
+      {{- end }}
+
       containers:
         - name: nginx
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 80
+
           resources:
             requests:
               cpu: {{ .Values.resources.requests.cpu }}
@@ -31,23 +59,32 @@ spec:
             limits:
               cpu: {{ .Values.resources.limits.cpu }}
               memory: {{ .Values.resources.limits.memory }}
+
           readinessProbe:
             httpGet: { path: /, port: 80 }
-            initialDelaySeconds: 3
+            initialDelaySeconds: 10
             periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+
           livenessProbe:
             httpGet: { path: /, port: 80 }
-            initialDelaySeconds: 10
+            initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+
           startupProbe:
             httpGet: { path: /, port: 80 }
-            periodSeconds: 1
-            failureThreshold: 30
+            periodSeconds: 2
+            failureThreshold: 60
+
           {{- if .Values.pvc.enabled }}
           volumeMounts:
             - name: site
               mountPath: /usr/share/nginx/html
           {{- end }}
+
       {{- if .Values.pvc.enabled }}
       volumes:
         - name: site
